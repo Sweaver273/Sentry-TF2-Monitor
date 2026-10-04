@@ -396,7 +396,7 @@ class AppLogic:
             p.marked_cheater_friends_tf2bd = len(friends & tf2bd_cheaters)
             p.marked_suspicious_friends_tf2bd = len(friends & tf2bd_suspicious)
 
-    def get_players(self):
+    def get_players(self, hijack): #rename?
         running = TF2Monitor.is_process_running()
         with self.state_lock:
             self.tf2_running = running
@@ -404,115 +404,150 @@ class AppLogic:
             self._reset_state()
             self.rcon.reset()
             return 'tf2_closed', [], [], []
-
-        self._process_chat_queue()
-
-        t0 = time.monotonic()
-        ok, response = self.rcon.execute("g15_dumpplayer")
-        dt = time.monotonic() - t0
-        if dt > 1.5:
-            print(f"g15_dumpplayer took {dt:.2f}s")
-
-        if response == "__TIMEOUT__":
-            with self.state_lock:
+        
+        if hijack:
+            with self.state_lock: #since we won't be getting playerdata this tick, use the cache. TODO: what if we have no cache?
                 cached_red = list(self.connected_red_players)
                 cached_blue = list(self.connected_blue_players)
                 cached_spec = list(self.connected_spectator_players)
                 cached_unassigned = list(self.connected_unassigned_players)
-            return 'lobby_found', cached_red, cached_blue, cached_spec + cached_unassigned
+            pdata = 'lobby_found', cached_red, cached_blue, cached_spec + cached_unassigned
+            
+            ok, response = self.rcon.execute("dumpstringtables") #listmodels - cache; running a map again will break it, cl_always_flush_models 1 ? broken?
+            if not ok:
+                self._reset_state()
+                print(f"[DBG] RCON returned bad response.")
+                return pdata
+            
+            print(ok)
+            if response == "":
+                print(f"[DBG] No status available.")
+                return pdata
+            
+            mapdata = TF2Monitor.parse_stringtables_dump(response[:100])
+            if not mapdata:
+                print(f"[DGB] Status command returned no map data. Are you connected?")
+                return 'connection_failed', [], [], [] 
+            
+            if mapdata["contract_page"] == None:
+                message = f"[Sentry] {mapdata['name']}"
+                self.queue_chat(message, "tf_party_chat")
+                return pdata
+            else:
+                message = f"[Sentry] {mapdata['name']} - {mapdata['contract_page']}"
+                self.queue_chat(message, "tf_party_chat")
+                return pdata
+                
+            self._process_chat_queue()
 
-        if self.rcon.block_reason:
-            return self.rcon.block_reason, [], [], []
+        else:
+            self._process_chat_queue()
+            t0 = time.monotonic()
+            ok, response = self.rcon.execute("g15_dumpplayer")
+            dt = time.monotonic() - t0
+            if dt > 1.5:
+                print(f"[DBG] g15_dumpplayer took {dt:.2f}s")
 
-        if not ok:
-            self._reset_state()
-            return 'connection_failed', [], [], []
+            if response == "__TIMEOUT__":
+                with self.state_lock:
+                    cached_red = list(self.connected_red_players)
+                    cached_blue = list(self.connected_blue_players)
+                    cached_spec = list(self.connected_spectator_players)
+                    cached_unassigned = list(self.connected_unassigned_players)
+                return ('lobby_found', cached_red, cached_blue, cached_spec + cached_unassigned)
 
-        if not response.strip():
-            self._reset_state()
-            return 'lobby_not_found', [], [], []
+            if self.rcon.block_reason:
+                return self.rcon.block_reason, [], [], []
 
-        success, red, blue, spec, unassigned, local_team = TF2Monitor.parse_g15_dump(response)
+            if not ok:
+                self._reset_state()
+                return 'connection_failed', [], [], []
 
-        if not success:
+            if not response.strip():
+                self._reset_state()
+                return 'lobby_not_found', [], [], []
+
+            success, red, blue, spec, unassigned, local_team = TF2Monitor.parse_g15_dump(response)
+
+            if not success:
+                with self.state_lock:
+                    cached_red = list(self.connected_red_players)
+                    cached_blue = list(self.connected_blue_players)
+                    cached_spec = list(self.connected_spectator_players)
+                    cached_unassigned = list(self.connected_unassigned_players)
+                return 'lobby_found', cached_red, cached_blue, cached_spec + cached_unassigned
+
+            all_players = red + blue + spec + unassigned
+            all_sids = [p.steamid for p in all_players]
+            self.update_steam_api_data(all_sids)
+
+            for p in all_players:
+                p.player_type = self.lists.identify_player_type(p.steamid)
+                p.notes = self.lists.get_user_notes(p.steamid)
+                p.mark_label = self.lists.get_mark_label(p.steamid)
+                p.mark_tooltip = self.lists.get_mark_tooltip(p.steamid)
+
+            self.calculate_stacks(all_players)
+            self.annotate_friend_mark_stats(all_players)
+            now_ts = int(time.time())
+
+            with self.steam_api_lock:
+                for p in all_players:
+                    data = self.steam_api_cache.get(p.steamid, {})
+
+                    p.avatar_url = data.get('avatar')
+                    p.vac_banned = data.get('vac')
+                    p.game_bans = data.get('game_bans')
+                    p.tf2_playtime = data.get('playtime')
+
+                    created = data.get('timecreated', 0)
+                    if created > 0:
+                        years = (now_ts - created) / 31536000
+                        p.account_age = round(years, 1)
+                    else:
+                        p.account_age = None
+
+            with self.steamhistory_lock:
+                api_key_exists = bool(self.get_setting("SteamHistory_API_Key"))
+                for p in all_players:
+                    p.sb_details = self.steamhistory_bans.get(p.steamid)
+
+                    if p.sb_details is not None:
+                        relevant = [b for b in p.sb_details if b.get('CurrentState') != 'Unbanned']
+                        p.ban_count = len(relevant)
+                    elif not api_key_exists:
+                        p.ban_count = None
+                    elif p.steamid in self.steamhistory_cache:
+                        p.ban_count = 0
+                    else:
+                        p.ban_count = None
+
             with self.state_lock:
-                cached_red = list(self.connected_red_players)
-                cached_blue = list(self.connected_blue_players)
-                cached_spec = list(self.connected_spectator_players)
-                cached_unassigned = list(self.connected_unassigned_players)
-            return 'lobby_found', cached_red, cached_blue, cached_spec + cached_unassigned
+                self.user_current_team = local_team
+                self.connected_red_players = red
+                self.connected_blue_players = blue
+                self.connected_spectator_players = spec
+                self.connected_unassigned_players = unassigned
 
-        all_players = red + blue + spec + unassigned
-        all_sids = [p.steamid for p in all_players]
-        self.update_steam_api_data(all_sids)
+                for p in all_players:
+                    self._update_last_seen(p)
 
-        for p in all_players:
-            p.player_type = self.lists.identify_player_type(p.steamid)
-            p.notes = self.lists.get_user_notes(p.steamid)
-            p.mark_label = self.lists.get_mark_label(p.steamid)
-            p.mark_tooltip = self.lists.get_mark_tooltip(p.steamid)
+                self.lists.update_recently_played(all_players, self.recently_played)
 
-        self.calculate_stacks(all_players)
-        self.annotate_friend_mark_stats(all_players)
-        now_ts = int(time.time())
+                current_ids = set(all_sids)
+                self.announced_party_cheaters &= current_ids
+                self.announced_party_bans &= current_ids
+                self.suspicious_steamids &= current_ids
 
-        with self.steam_api_lock:
-            for p in all_players:
-                data = self.steam_api_cache.get(p.steamid, {})
+                self._last_good_g15 = time.monotonic()
 
-                p.avatar_url = data.get('avatar')
-                p.vac_banned = data.get('vac')
-                p.game_bans = data.get('game_bans')
-                p.tf2_playtime = data.get('playtime')
+                pdata = ('lobby_found', list(red), list(blue), list(spec + unassigned))
 
-                created = data.get('timecreated', 0)
-                if created > 0:
-                    years = (now_ts - created) / 31536000
-                    p.account_age = round(years, 1)
-                else:
-                    p.account_age = None
+            self.update_sourcebans(all_sids)
+            self.analyze_suspicious_sourcebans(all_players)
+            self.check_party_announcements(all_players)
 
-        with self.steamhistory_lock:
-            api_key_exists = bool(self.get_setting("SteamHistory_API_Key"))
-            for p in all_players:
-                p.sb_details = self.steamhistory_bans.get(p.steamid)
-
-                if p.sb_details is not None:
-                    relevant = [b for b in p.sb_details if b.get('CurrentState') != 'Unbanned']
-                    p.ban_count = len(relevant)
-                elif not api_key_exists:
-                    p.ban_count = None
-                elif p.steamid in self.steamhistory_cache:
-                    p.ban_count = 0
-                else:
-                    p.ban_count = None
-
-        with self.state_lock:
-            self.user_current_team = local_team
-            self.connected_red_players = red
-            self.connected_blue_players = blue
-            self.connected_spectator_players = spec
-            self.connected_unassigned_players = unassigned
-
-            for p in all_players:
-                self._update_last_seen(p)
-
-            self.lists.update_recently_played(all_players, self.recently_played)
-
-            current_ids = set(all_sids)
-            self.announced_party_cheaters &= current_ids
-            self.announced_party_bans &= current_ids
-            self.suspicious_steamids &= current_ids
-
-            self._last_good_g15 = time.monotonic()
-
-            pdata = ('lobby_found', list(red), list(blue), list(spec + unassigned))
-
-        self.update_sourcebans(all_sids)
-        self.analyze_suspicious_sourcebans(all_players)
-        self.check_party_announcements(all_players)
-
-        return pdata
+            return pdata
 
     def _reset_state(self):
         with self.state_lock:

@@ -106,6 +106,110 @@ class TF2Monitor:
         return None
 
     @staticmethod
+    def parse_stringtables_dump(response):
+        mapdata = {}
+        if not response:
+            return False
+        
+        pattern_map = re.compile(r'maps\\(.*)\.bsp')
+        
+        match = pattern_map.search(response)
+        map_name = match.group(1).strip() if match else None
+        mapdata["name"] = map_name
+        
+        #Parsing map names to find contract folder
+        contract_folders = {
+            "official maps": [
+                "koth_harvest_event",
+                "plr_hightower_event",
+                "sd_doomsday_event",
+                "cp_manor_event",
+                "koth_viaduct_event",
+                "koth_lakeside_event"
+            ],
+            "community maps 1": [
+                "pl_fifthcurve_event",
+                "koth_bagel_event",
+                "pd_cursed_cove_event",
+                "cp_gorge_event",
+                "pl_rumble_event",
+                "pl_millstone_event",
+                "koth_slaughter_event",
+                "koth_maple_ridge_event",
+                "pd_monster_bash",
+                "koth_moonshine_event",
+                "pl_precipice_event_final",
+                "cp_sunshine_event",
+                "koth_slasher",
+                "pd_pit_of_death_event"
+            ],
+            "community maps 2": [
+                "pd_farmageddon",
+                "arena_lumberyard_event",
+                "pl_hasslecastle",
+                "koth_los_muertos",
+                "koth_megalo",
+                "koth_undergrove_event",
+                "koth_synthetic_event",
+                "pl_terror_event",
+                "pl_bloodwater",
+                "cp_ambush_event"
+            ],
+            "community maps 3": [
+                "ctf_crasher",
+                "plr_hacksaw_event",
+                "koth_sawmill_event",
+                "cp_spookeyridge",
+                "pl_sludgepit_event",
+                "ctf_helltrain_event"
+            ],
+            "community maps 4": [
+                "pl_spineyard",
+                "cp_lavapit_final",
+                "pd_mannsylvania",
+                "koth_slime",
+                "arena_perks",
+                "pl_corruption",
+                "cp_degrootkeep_rats",
+                "zi_murky",
+                "zi_atoll",
+                "zi_woods",
+                "zi_sanitarium",
+                "zi_devastation_final1"
+            ],
+            "community maps 5": [
+                "koth_toxic",
+                "cp_darkmarsh",
+                "cp_freaky_fair",
+                "tow_dynamite",
+                "pd_circus",
+                "vsh_outburst",
+                "zi_blazehattan",
+                "cp_cowerhouse",
+                "koth_dusker",
+                "ctf_doublecross_event",
+                "arena_afterlife",
+                "htf_marshlands"
+            ],
+            "community maps 6": [
+                "cp_holyhell",
+                "cp_wildcat_event",
+                "pl_aridpass_event",
+                "koth_trainsawlaser",
+                "ctf_medi_evil"
+            ]
+        }
+        
+        mapdata["contract_page"] = next(
+            (folder for folder, maps in contract_folders.items() if map_name in maps),
+            None
+        )
+        
+        print(mapdata)
+        
+        return mapdata #lets return everything needed for print, which is map name and contract folder. It'll be more efficient.
+
+    @staticmethod
     def parse_g15_dump(response):
         if not response.strip(): return False, [], [], [], [], None
 

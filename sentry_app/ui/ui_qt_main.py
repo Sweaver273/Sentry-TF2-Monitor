@@ -72,6 +72,7 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
         self.nam = QNetworkAccessManager(self)
         self.icon_cache = {}
 
+        self.hijack = False #Using this to occassionally hijack tick_update_data
         self.queue_timer = QTimer(self)
         self.queue_timer.timeout.connect(self.process_queue)
         self.queue_timer.start(100)
@@ -129,11 +130,14 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
         btn_users.clicked.connect(self.open_userlist)
         btn_tf2bd = QPushButton("TF2BD Lists")
         btn_tf2bd.clicked.connect(self.open_tf2bd_lists)
+        btn_getmap = QPushButton("Contract Helper") #Testing a contract helper that identifies which map pool to look in
+        btn_getmap.clicked.connect(self.initiate_hijack) #Let's hijack the playerdata tick
 
         top_bar.addWidget(btn_settings)
         top_bar.addWidget(btn_users)
         top_bar.addWidget(btn_tf2bd)
         top_bar.addWidget(btn_recent)
+        top_bar.addWidget(btn_getmap)
 
         self.lbl_status = QLabel("Initializing...")
         self.lbl_status.setAlignment(Qt.AlignCenter)
@@ -353,14 +357,23 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
         from .ui_qt_tf2bd_lists import TF2BDListManagerWindow
         TF2BDListManagerWindow(self, self.logic, self.px).exec()
 
-    def tick_update_data(self):
+    def initiate_hijack(self):
+        if self.hijack == True:
+            print(f"[DBG] Double hijack detected, reseting...")
+            self.hijack = False
+        else:
+            self.hijack = True
+            print(f"[DBG] Hijacking next tick...")
+
+    def tick_update_data(self): 
         if not self.is_fetching and not self.is_closing:
             self.is_fetching = True
             threading.Thread(target=self._data_worker, daemon=True).start()
+            self.hijack = False
 
     def _data_worker(self):
         try:
-            res = self.logic.get_players()
+            res = self.logic.get_players(self.hijack) #lets hijack this function for status requests to pull map data
         except Exception as e:
             print(f"Error in data worker: {e}")
             res = ('connection_failed', [], [], [])
