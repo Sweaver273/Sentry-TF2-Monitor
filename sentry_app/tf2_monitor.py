@@ -106,17 +106,17 @@ class TF2Monitor:
         return None
 
     @staticmethod
-    def parse_stringtables_dump(response):
+    def parse_dumpstringtables(response):
         mapdata = {}
         if not response:
             return False
-        
+
         pattern_map = re.compile(r'maps\\(.*)\.bsp')
-        
+
         match = pattern_map.search(response)
         map_name = match.group(1).strip() if match else None
         mapdata["name"] = map_name
-        
+
         #Parsing map names to find contract folder
         contract_folders = {
             "official maps": [
@@ -205,9 +205,39 @@ class TF2Monitor:
             None
         )
         
-        print(mapdata)
-        
         return mapdata #lets return everything needed for print, which is map name and contract folder. It'll be more efficient.
+
+    @staticmethod
+    def parse_net_channels(response):
+        if response.strip() == "No active net channels." or not response.strip():
+            return None
+        else:
+            pattern_remote_ip = re.compile(r'remote IP: (loopback|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}\b)\s')
+            ip = pattern_remote_ip.search(response)
+            if ip:
+                return ip.group(1)
+            return None
+        
+    @staticmethod
+    def parse_TPD(response):
+        if not response.strip() or response.strip() == "Failed to find party shared object":
+            return None
+        else:
+            pattern_isQueuing = re.compile(r'In (\d) queues:')
+            pattern_leader_id = re.compile(r'leader_id: (\d*)')
+            pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #comma separated; check to make sure this is accurate.
+            
+            queues = pattern_isQueuing.search(response).group(1)
+            if int(queues) > 0:
+                isQueuing = True
+            else:
+                isQueuing = False
+                
+            leader_id = pattern_leader_id.search(response).group(1)
+            
+            member_ids = re.findall(r'\d+', pattern_member_ids.search(response).group(1))
+            
+        return {"leader_id": leader_id, "member_ids": member_ids, "in_queue": isQueuing} 
 
     @staticmethod
     def parse_g15_dump(response):
