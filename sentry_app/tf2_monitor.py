@@ -220,22 +220,22 @@ class TF2Monitor:
         
     @staticmethod
     def parse_TPD(response):
-        if not response.strip() or response.strip() == "Failed to find party shared object":
+        if not response or not response.strip() or response.strip() == "Failed to find party shared object":
             return None
+            
+        pattern_isQueuing = re.compile(r'In (\d) queues:')
+        pattern_leader_id = re.compile(r'leader_id: (\d*)')
+        pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #comma separated; check to make sure this is accurate.
+        
+        queues = pattern_isQueuing.search(response).group(1)
+        if int(queues) > 0:
+            isQueuing = True
         else:
-            pattern_isQueuing = re.compile(r'In (\d) queues:')
-            pattern_leader_id = re.compile(r'leader_id: (\d*)')
-            pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #comma separated; check to make sure this is accurate.
+            isQueuing = False
             
-            queues = pattern_isQueuing.search(response).group(1)
-            if int(queues) > 0:
-                isQueuing = True
-            else:
-                isQueuing = False
-                
-            leader_id = pattern_leader_id.search(response).group(1)
-            
-            member_ids = re.findall(r'\d+', pattern_member_ids.search(response).group(1))
+        leader_id = pattern_leader_id.search(response).group(1)
+        
+        member_ids = re.findall(r'\d+', pattern_member_ids.search(response).group(1))
             
         return {"leader_id": leader_id, "member_ids": member_ids, "in_queue": isQueuing} 
 

@@ -86,7 +86,6 @@ class RConManager:
         return host, port, pw
 
     def execute(self, command: str) -> tuple[bool, str]:
-        print(f"[DBG] running {command}...")
         host, port, pw = self._get_creds()
 
         with self.lock:

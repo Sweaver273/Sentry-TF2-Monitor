@@ -403,36 +403,36 @@ class AppLogic:
             self.rcon.reset() 
             return {"process": None, "rcon": None, "server": None, "party": None}
         
-        self._process_chat_queue() #Add to connection check for main menu processing of party chats?
+        self._process_chat_queue()
         
         with self.state_lock:
             cached_connection = self.state["server"]
             cached_party = self.state["party"]
         
-        #check if we need to update the server connection state
+        #check if we need to update the server connection state before checking for players
         if not cached_connection or not cached_connection["lobby"] or not cached_connection["map"]:
             server = cached_connection
             
-            nc_ok, nc_response = self.rcon.execute("net_channels") #smaller responses
+            nc_ok, nc_response = self.rcon.execute("net_channels") #net_channels prints a small response, good pick for first check - optimization
             if not nc_ok or nc_response == "__TIMEOUT__":
                 rcon = "timeout"
                 server = cached_connection
             elif self.rcon.block_reason:
-                rcon = self.rcon.block_reason #either "auth_failed" or "banned"
+                rcon = self.rcon.block_reason
             else:
                 rcon = "connected"
                 
-            if not nc_response.strip(): #this way, we only run one command if we're disconnected
+            if not nc_response.strip(): #no response, time to repeat until we detect a connection.
                 server = None
             else:
                 ip = TF2Monitor.parse_net_channels(nc_response)
                 if ip:
-                    st_ok, st_response = self.rcon.execute("dumpstringtables") #dumps map name, among other strings
+                    st_ok, st_response = self.rcon.execute("dumpstringtables") #dumps map name, among many other strings.
                     if st_response == "__TIMEOUT__":
                         server = cached_connection
                         rcon = "timeout"
                     else:
-                        mapdata = TF2Monitor.parse_dumpstringtables(st_response[:100].strip()) #output is huge, mapdata is usually string 0
+                        mapdata = TF2Monitor.parse_dumpstringtables(st_response[:100].strip()) #map should be on first line of output (or near due to jank)
                         if mapdata:
                             map_file_name = mapdata["name"]
                             contract_page = mapdata["contract_page"]
@@ -440,7 +440,7 @@ class AppLogic:
                             if self.get_setting_bool("contract_helper") and (
                             not cached_connection or map_file_name != cached_connection["map"]
                             ):
-                                if mapdata["contract_page"] == None: #TODO: add settings toggle
+                                if mapdata["contract_page"] == None:
                                     message = f"[Sentry] {map_file_name}"
                                     self.queue_chat(message, "tf_party_chat")
                                 else:
@@ -460,7 +460,7 @@ class AppLogic:
             lobby = self.get_players()
             rcon = "connected"
             if not lobby:
-                server = None #re-evaluate our connection to the server
+                server = None #no players detected; something changed!
             else:
                 server = {"ip": cached_connection["ip"], "map": cached_connection["map"], "connected": True, "lobby": lobby}
         
