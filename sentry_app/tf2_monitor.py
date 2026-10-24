@@ -227,7 +227,12 @@ class TF2Monitor:
         pattern_leader_id = re.compile(r'leader_id: (\d*)')
         pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #comma separated; check to make sure this is accurate.
         
-        queues = pattern_isQueuing.search(response).group(1)
+        a = pattern_isQueuing.search(response)
+        if not a:
+            print(f"[DBG] TF_PARTY_DEBUG returned no queue count, RCON likely spewed into console.") #there may be a bug in the rcon.py due to RCON jank
+            queues = 0
+        else:
+            queues=a.group(1)
         if int(queues) > 0:
             isQueuing = True
         else:
