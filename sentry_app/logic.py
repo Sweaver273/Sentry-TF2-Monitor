@@ -396,81 +396,97 @@ class AppLogic:
             p.marked_cheater_friends_tf2bd = len(friends & tf2bd_cheaters)
             p.marked_suspicious_friends_tf2bd = len(friends & tf2bd_suspicious)
 
-    def update_state(self):
+    def update_state(self) -> dict:
         running = TF2Monitor.is_process_running()
         if not running:
             self._reset_state()
-            self.rcon.reset() 
-            return {"process": None, "rcon": None, "server": None, "party": None}
-        
-        self._process_chat_queue()
+            self.rcon.reset()
+            return {"process": None, "rcon": None, "party": None, "server": None}
         
         with self.state_lock:
+            self.state["process"] = True
             cached_connection = self.state["server"]
             cached_party = self.state["party"]
-        
-        #check if we need to update the server connection state before checking for players
-        if not cached_connection or not cached_connection["lobby"] or not cached_connection["map"]:
-            server = cached_connection
             
-            nc_ok, nc_response = self.rcon.execute("net_channels") #net_channels prints a small response, good pick for first check - optimization
+        #Start with party & RCON checks, as there should (almost always) be a party ID.
+        tpd_ok, tpd_response = self.rcon.execute("tf_party_debug")
+        if self.rcon.block_reason:
+            rcon = self.rcon.block_reason
+            with self.state_lock:
+                self.state["rcon"] = rcon
+                self.state["server"] = None
+                self.state["party"] = None
+            return {"process": running, "rcon": rcon, "party": None, "server": None}
+        elif not tpd_ok or tpd_response == "__TIMEOUT__":
+            rcon = "timeout"
+            party = cached_party
+            with self.state_lock:
+                self.state["rcon"] = rcon
+        else:
+            party = TF2Monitor.parse_TPD(tpd_response)
+            rcon = "connected"
+            
+
+        
+        #making a large nested block here to reduce commands sent to RCON, improves performance on low-end machines.
+        if not cached_connection or not cached_connection["map"]: #map = None indicates server/map change, meaning we need to redo connection checks.
+            nc_ok, nc_response = self.rcon.execute("net_channels") #net_channels first since it has a small response.
             if not nc_ok or nc_response == "__TIMEOUT__":
                 rcon = "timeout"
                 server = cached_connection
-            elif self.rcon.block_reason:
-                rcon = self.rcon.block_reason
-            else:
-                rcon = "connected"
-                
-            if not nc_response.strip(): #no response, time to repeat until we detect a connection.
+            elif not nc_response.strip():
                 server = None
             else:
                 ip = TF2Monitor.parse_net_channels(nc_response)
-                if ip:
-                    st_ok, st_response = self.rcon.execute("dumpstringtables") #dumps map name, among many other strings.
-                    if st_response == "__TIMEOUT__":
-                        server = cached_connection
-                        rcon = "timeout"
-                    else:
-                        mapdata = TF2Monitor.parse_dumpstringtables(st_response[:100].strip()) #map should be on first line of output (or near due to jank)
-                        if mapdata:
-                            map_file_name = mapdata["name"]
-                            contract_page = mapdata["contract_page"]
-                            
-                            if self.get_setting_bool("contract_helper") and (
-                            not cached_connection or map_file_name != cached_connection["map"]
-                            ):
-                                if mapdata["contract_page"] == None:
-                                    message = f"[Sentry] {map_file_name}"
-                                    self.queue_chat(message, "tf_party_chat")
-                                else:
-                                    message = f"[Sentry] {map_file_name} - {mapdata['contract_page']}"
-                                    self.queue_chat(message, "tf_party_chat")
-                            
-                            lobby = self.get_players()
-                            if lobby:
-                                server = {"ip": ip, "map": map_file_name, "connected": True, "lobby": lobby}
-                            else:
-                                server = {"ip": ip, "map": map_file_name, "connected": False, "lobby": lobby}
+                if not ip:
+                    with self.state_lock:
+                        self.state["process"] = running
+                        self.state["rcon"] = rcon
+                        self.state["server"] = None
+                        self.state["party"] = party
+                    return {"process": running, "rcon": rcon, "party": party, "server": None}
+                
+                st_ok, st_response = self.rcon.execute("dumpstringtables") #serves as a check that serverdata is now being received and also provides the map name.
+                if not st_ok or st_response == "__TIMEOUT__":
+                    rcon = "timeout"
+                    with self.state_lock:
+                        self.state["process"] = running
+                        self.state["rcon"] = rcon
+                        self.state["party"] = party
+                    return {"process": running, "rcon": rcon, "party": party, "server": cached_connection}
+
+                mapdata = TF2Monitor.parse_dumpstringtables(st_response[:100].strip()) #map should be on first line of output (or near due to ordering jank)
+                if mapdata:
+                    map_file_name = mapdata["name"]
+                    contract_page = mapdata["contract_page"]
+                    
+                    if self.get_setting_bool("contract_helper") and (
+                    not cached_connection or (map_file_name != cached_connection["map"] and map_file_name)
+                    ):
+                        if not mapdata["contract_page"]:
+                            message = f"[Sentry] {map_file_name}"
+                            self.queue_chat(message, "tf_party_chat") 
                         else:
-                            server = {"ip": ip, "map": None, "connected": False, "lobby": None}
+                            message = f"[Sentry] {map_file_name} - {mapdata['contract_page']}"
+                            self.queue_chat(message, "tf_party_chat")
+                    
+                    lobby = self.get_players()
+                    if lobby:
+                        server = {"ip": ip, "map": map_file_name, "connected": True, "lobby": lobby}
+                    else:
+                        server = {"ip": ip, "map": map_file_name, "connected": False, "lobby": lobby}
                 else:
-                    server = None
+                    server = {"ip": ip, "map": None, "connected": False, "lobby": None}
+            
         else:
             lobby = self.get_players()
             rcon = "connected"
+            self._process_chat_queue() #We're only going to use chat while in-game, I think this is a safe assumption.
+            
             if not lobby:
                 server = None #no players detected; something changed!
             else:
                 server = {"ip": cached_connection["ip"], "map": cached_connection["map"], "connected": True, "lobby": lobby}
-        
-        #Next, let's check the party state.
-        tpd_ok, tpd_response = self.rcon.execute("tf_party_debug")
-        if tpd_response == "__TIMEOUT__":
-            rcon = "timeout"
-            party = cached_party
-        else:
-            party = TF2Monitor.parse_TPD(tpd_response)
         
         with self.state_lock:
             self.state["process"] = running

@@ -1,13 +1,15 @@
 import socket
 import struct
 import threading
+import random
 
 SERVERDATA_RESPONSE_VALUE = 0
 SERVERDATA_EXECCOMMAND = 2
 SERVERDATA_AUTH = 3
 SERVERDATA_AUTH_RESPONSE = 2
 
-ID_AUTH = 999
+ID_AUTH = random.randint(0,2147483647) #useful for simultaneous instances (debugging)
+print (ID_AUTH)
 ID_COMMAND_REAL = 100
 ID_COMMAND_MARKER = 101
 

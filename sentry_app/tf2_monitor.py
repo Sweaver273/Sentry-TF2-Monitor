@@ -109,8 +109,8 @@ class TF2Monitor:
     def parse_dumpstringtables(response):
         mapdata = {}
         if not response:
-            return False
-
+            return None
+        
         pattern_map = re.compile(r'maps\\(.*)\.bsp')
 
         match = pattern_map.search(response)
@@ -220,29 +220,36 @@ class TF2Monitor:
         
     @staticmethod
     def parse_TPD(response):
-        if not response or not response.strip() or response.strip() == "Failed to find party shared object":
+        if not response or response.strip() == "Failed to find party shared object":
             return None
             
-        pattern_isQueuing = re.compile(r'In (\d) queues:')
+        pattern_queues = re.compile(r'In (\d) queues:')
         pattern_leader_id = re.compile(r'leader_id: (\d*)')
-        pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #comma separated; check to make sure this is accurate.
+        pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #REVIEW
         
-        a = pattern_isQueuing.search(response)
-        if not a:
-            print(f"[DBG] TF_PARTY_DEBUG returned no queue count, RCON likely spewed into console.") #there may be a bug in the rcon.py due to RCON jank
-            queues = 0
-        else:
-            queues=a.group(1)
-        if int(queues) > 0:
-            isQueuing = True
-        else:
-            isQueuing = False
-            
-        leader_id = pattern_leader_id.search(response).group(1)
+        sQueues = pattern_queues.search(response)
+        sLeader_id = pattern_leader_id.search(response)
+        sMember_ids = pattern_member_ids.search(response)
         
-        member_ids = re.findall(r'\d+', pattern_member_ids.search(response).group(1))
+        if not sQueues:
+            print(f"[DBG] TF_PARTY_DEBUG missing queue count. Did RCON spew?") #TODO: investigate for fixes?
+            queue_count = 0
+        else:
+            queue_count = int(sQueues.group(1))
             
-        return {"leader_id": leader_id, "member_ids": member_ids, "in_queue": isQueuing} 
+        if not sLeader_id:
+            print(f"[DBG] TF_PARTY_DEBUG missing leader_id. Did RCON spew?") #TODO: investigate for fixes?
+            leader_id = None
+        else:
+            leader_id = str(sLeader_id.group(1))
+        
+        if not sMember_ids:
+            print(f"[DBG] TF_PARTY_DEBUG missing member_ids. Did RCON spew?") #TODO: investigate for fixes?
+            member_ids = None
+        else:
+            member_ids = re.findall(r'\d+', sMember_ids.group(1))
+            
+        return {"leader_id": leader_id, "member_ids": member_ids, "in_queue": queue_count} 
 
     @staticmethod
     def parse_g15_dump(response):
