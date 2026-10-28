@@ -429,7 +429,7 @@ class AppLogic:
 
         
         #making a large nested block here to reduce commands sent to RCON, improves performance on low-end machines.
-        if not cached_connection or not cached_connection["map"]: #map = None indicates server/map change, meaning we need to redo connection checks.
+        if not cached_connection or not cached_connection["map"] or not cached_connection["connected"]: #map = None indicates server/map change, meaning we need to redo connection checks.
             nc_ok, nc_response = self.rcon.execute("net_channels") #net_channels first since it has a small response.
             if not nc_ok or nc_response == "__TIMEOUT__":
                 rcon = "timeout"
@@ -481,7 +481,7 @@ class AppLogic:
             self._process_chat_queue() #We're only going to use chat while in-game, I think this is a safe assumption.
             
             if not lobby:
-                server = None #no players detected; something changed!
+                server = None #no players detected; something changed! Could improve by adding another 
             else:
                 server = {"ip": cached_connection["ip"], "map": cached_connection["map"], "connected": True, "lobby": lobby}
         
