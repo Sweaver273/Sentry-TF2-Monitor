@@ -224,31 +224,28 @@ class TF2Monitor:
             return None
             
         pattern_queues = re.compile(r'In (\d) queues:')
-        pattern_leader_id = re.compile(r'leader_id: (\d*)')
-        pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)') #REVIEW
+        pattern_leader_id = re.compile(r'LeaderID: (\[U:\d:\d*\])')  #leader_id: (\d*) captures the leader's id64 in the body of response, sometimes we get no body though...
+        pattern_member_ids = re.compile(r'member_ids:\s*([\d,\s]+)\s') #REVIEW
         
         sQueues = pattern_queues.search(response)
         sLeader_id = pattern_leader_id.search(response)
-        sMember_ids = pattern_member_ids.search(response)
+        member_id64s = pattern_member_ids.findall(response)
         
         if not sQueues:
-            print(f"[DBG] TF_PARTY_DEBUG missing queue count. Did RCON spew?") #TODO: investigate for fixes?
             queue_count = 0
         else:
             queue_count = int(sQueues.group(1))
             
         if not sLeader_id:
-            print(f"[DBG] TF_PARTY_DEBUG missing leader_id. Did RCON spew?") #TODO: investigate for fixes?
             leader_id = None
         else:
             leader_id = str(sLeader_id.group(1))
         
-        if not sMember_ids:
-            print(f"[DBG] TF_PARTY_DEBUG missing member_ids. Did RCON spew?") #TODO: investigate for fixes?
-            member_ids = None
-        else:
-            member_ids = re.findall(r'\d+', sMember_ids.group(1))
-            
+        member_ids = []
+        if member_id64s:
+            for id64 in member_id64s:
+                member_ids.append(convert_steamid64_to_steamid3(id64))
+        
         return {"leader_id": leader_id, "member_ids": member_ids, "in_queue": queue_count} 
 
     @staticmethod

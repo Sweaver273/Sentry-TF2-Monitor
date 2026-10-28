@@ -74,7 +74,7 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
         
         self.queue_timer = QTimer(self)
         self.queue_timer.timeout.connect(self.process_queue)
-        self.queue_timer.start(100) #defines the process queue timer, i.e. updaterate
+        self.queue_timer.start(100)
 
         self.fetch_timer = QTimer(self)
         self.fetch_timer.timeout.connect(self.tick_update_data)
@@ -380,7 +380,7 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
         IsRunning = result["process"]
         RCON_status = result["rcon"]
         serverdata = result["server"]
-        partydata = result["party"] #unused for now
+        partydata = result["party"] #unused for now, could implement into player list at some point...
         
         steamid_status_msg = ""
         using_override = self.logic.get_setting_bool('Use_Manual_SteamID')
@@ -433,7 +433,7 @@ class MainWindow(DeselectableWindowMixin, QMainWindow):
             total = len(red) + len(blue) + len(spec)
             player_word = "player" if total == 1 else "players"
 
-            if steamid_status_msg:
+            if steamid_status_msg: #this could probably use some UI cleanup, but it works...
                 text = f"Connected. Monitoring {total} {player_word}. {steamid_status_msg} \n{serverdata["ip"]} - {serverdata["map"]}"
                 color = "orange"
             else:

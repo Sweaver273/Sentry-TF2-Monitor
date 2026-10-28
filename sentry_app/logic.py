@@ -463,10 +463,7 @@ class AppLogic:
                     if self.get_setting_bool("contract_helper") and (
                     not cached_connection or (map_file_name != cached_connection["map"] and map_file_name)
                     ):
-                        if not mapdata["contract_page"]:
-                            message = f"[Sentry] {map_file_name}"
-                            self.queue_chat(message, "tf_party_chat") 
-                        else:
+                        if mapdata["contract_page"]:
                             message = f"[Sentry] {map_file_name} - {mapdata['contract_page']}"
                             self.queue_chat(message, "tf_party_chat")
                     
@@ -514,7 +511,7 @@ class AppLogic:
             return None
 
         elif response == "__TIMEOUT__":
-            print(f"[DBG] RCON timed out in get_players.")
+            print(f"[DBG] RCON timed out in get_players, returning cache.")
             return cached_red, cached_blue, cached_spec + cached_unassigned
         
         if not response.strip(): #should detect map changes or disconnects.
@@ -523,7 +520,7 @@ class AppLogic:
 
         success, red, blue, spec, unassigned, local_team = TF2Monitor.parse_g15_dump(response)
 
-        if not success: #this may happen if g15 dump leaks to console, investigate further if we can resolve
+        if not success: #this may happen if g15dump spews into other packets
             return cached_red, cached_blue, cached_spec + cached_unassigned
 
         all_players = red + blue + spec + unassigned
